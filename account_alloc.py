@@ -6,16 +6,24 @@
 
 import sys
 import json
+import time
 
 BASE_TOKEN = "AdSxbgrTgaVZY7sGGJicufPxn2F"
 
-# 加载systemid映射表
+# 缓存配置
+CACHE_TTL = 300  # 5分钟
+
+# systemid映射表缓存
 _systemid_map = None
+_systemid_loaded = False
+
+# Base数据缓存
+_base_cache = {}
 
 def load_systemid_map():
-    """加载syetemid.txt文件，构建fundid->systemid映射"""
-    global _systemid_map
-    if _systemid_map is not None:
+    """加载syetemid.txt文件，构建fundid->systemid映射（带缓存）"""
+    global _systemid_map, _systemid_loaded
+    if _systemid_loaded:
         return _systemid_map
 
     _systemid_map = {}
@@ -29,6 +37,7 @@ def load_systemid_map():
                     _systemid_map[fundid] = systemid
     except Exception as e:
         print("Warning: failed to load systemid file: {}".format(e))
+    _systemid_loaded = True
     return _systemid_map
 
 def lookup_systemid(营业部, 资金账号):
@@ -47,7 +56,39 @@ def lookup_systemid(营业部, 资金账号):
     return "待补充"
 
 def get_table_records(table_name_or_id):
-    """通过lark-cli查询表记录"""
+    """通过lark-cli查询表记录（带缓存）"""
+    global _base_cache
+
+    now = time.time()
+    # 检查缓存
+    if table_name_or_id in _base_cache:
+        cached = _base_cache[table_name_or_id]
+        if now - cached["timestamp"] < CACHE_TTL:
+            return cached["records"], cached["fields"], cached["record_ids"]
+
+    # 重新获取
+    import subprocess
+    cmd = "lark-cli base +record-list --base-token {} --table-id \"{}\" --limit 500".format(BASE_TOKEN, table_name_or_id)
+    result = subprocess.run(cmd, capture_output=True, shell=True)
+    if result.returncode != 0:
+        return [], [], []
+    try:
+        data = json.loads(result.stdout.decode('utf-8', errors='replace'))
+        if data.get("ok"):
+            records = data.get("data", {}).get("data", [])
+            fields = data.get("data", {}).get("fields", [])
+            record_ids = data.get("data", {}).get("record_id_list", [])
+            # 更新缓存
+            _base_cache[table_name_or_id] = {
+                "timestamp": now,
+                "records": records,
+                "fields": fields,
+                "record_ids": record_ids
+            }
+            return records, fields, record_ids
+    except:
+        pass
+    return [], [], []
     import subprocess
     cmd = "lark-cli base +record-list --base-token {} --table-id \"{}\" --limit 500".format(BASE_TOKEN, table_name_or_id)
     result = subprocess.run(cmd, capture_output=True, shell=True)
