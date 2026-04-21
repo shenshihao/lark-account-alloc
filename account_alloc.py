@@ -11,19 +11,17 @@ import time
 BASE_TOKEN = "AdSxbgrTgaVZY7sGGJicufPxn2F"
 
 # 缓存配置
-CACHE_TTL = 300  # 5分钟
+# Base数据缓存（分配后失效）
+_base_cache = {}
 
 # systemid映射表缓存
 _systemid_map = None
 _systemid_loaded = False
 
-# Base数据缓存
-_base_cache = {}
-
-def load_systemid_map():
-    """加载syetemid.txt文件，构建fundid->systemid映射（带缓存）"""
+def load_systemid_map(force=False):
+    """加载syetemid.txt文件，构建fundid->systemid映射"""
     global _systemid_map, _systemid_loaded
-    if _systemid_loaded:
+    if _systemid_loaded and not force:
         return _systemid_map
 
     _systemid_map = {}
@@ -39,6 +37,17 @@ def load_systemid_map():
         print("Warning: failed to load systemid file: {}".format(e))
     _systemid_loaded = True
     return _systemid_map
+
+def reload_systemid():
+    """重新加载systemid文件"""
+    global _systemid_loaded
+    _systemid_loaded = False
+    return load_systemid_map()
+
+def invalidate_cache():
+    """失效Base缓存，下次查询时重新加载"""
+    global _base_cache
+    _base_cache = {}
 
 def lookup_systemid(营业部, 资金账号):
     """根据营业部+资金账号查找systemid"""
@@ -56,15 +65,14 @@ def lookup_systemid(营业部, 资金账号):
     return "待补充"
 
 def get_table_records(table_name_or_id):
-    """通过lark-cli查询表记录（带缓存）"""
+    """通过lark-cli查询表记录（带缓存，分配后失效）"""
     global _base_cache
 
-    now = time.time()
     # 检查缓存
     if table_name_or_id in _base_cache:
-        cached = _base_cache[table_name_or_id]
-        if now - cached["timestamp"] < CACHE_TTL:
-            return cached["records"], cached["fields"], cached["record_ids"]
+        return _base_cache[table_name_or_id]["records"], \
+               _base_cache[table_name_or_id]["fields"], \
+               _base_cache[table_name_or_id]["record_ids"]
 
     # 重新获取
     import subprocess
@@ -80,7 +88,6 @@ def get_table_records(table_name_or_id):
             record_ids = data.get("data", {}).get("record_id_list", [])
             # 更新缓存
             _base_cache[table_name_or_id] = {
-                "timestamp": now,
                 "records": records,
                 "fields": fields,
                 "record_ids": record_ids
@@ -204,13 +211,15 @@ def get_first_unallocated_lowlat():
     return get_first_unallocated("低延时账号表")
 
 def mark_allocated(table_name_or_id, record_id):
-    """标记记录为已分配"""
+    """标记记录为已分配，并失效缓存"""
     if not record_id:
         return False
     import subprocess
     cmd = "lark-cli base +record-upsert --base-token {} --table-id \"{}\" --record-id {} --json \"{{\\\"是否已分配\\\":\\\"已分配\\\"}}\"".format(
         BASE_TOKEN, table_name_or_id, record_id)
     result = subprocess.run(cmd, capture_output=True, shell=True)
+    if result.returncode == 0:
+        invalidate_cache()  # 分配后失效缓存
     return result.returncode == 0
 
 def main():
@@ -223,9 +232,15 @@ def main():
         print("  python account_alloc.py alloc <类型> <客户号>  # 分配并标记")
         print("  python account_alloc.py auto dingdian        # 自动分配顶点账号")
         print("  python account_alloc.py auto lowlat          # 自动分配低延时账号")
+        print("  python account_alloc.py reload              # 重新加载systemid文件")
         sys.exit(1)
 
     mode = sys.argv[1]
+
+    if mode == "reload":
+        reload_systemid()
+        print("systemid文件已重新加载")
+        return
 
     if mode == "auto":
         if len(sys.argv) < 3:

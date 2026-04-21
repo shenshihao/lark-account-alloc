@@ -1,6 +1,6 @@
 ---
 name: lark-account-alloc
-version: 3.3.0
+version: 3.4.0
 description: "账号分配：从飞书多维表格获取账号数据，自动分配顶点/低延时账号并填充模板。当用户需要分配账号、查询账号配置时使用。"
 metadata:
   requires:
