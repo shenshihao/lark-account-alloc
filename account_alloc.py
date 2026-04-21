@@ -20,7 +20,7 @@ def load_systemid_map():
 
     _systemid_map = {}
     try:
-        with open('C:/账号梳理/syetemid.txt', 'r', encoding='utf-8') as f:
+        with open('/home/admin/config/syetemid.txt', 'r', encoding='utf-8') as f:
             for line in f:
                 parts = line.strip().split()
                 if len(parts) >= 2:

@@ -9,7 +9,7 @@ metadata:
 
 # 账号分配
 
-> **前置条件：** 使用 `lark-cli` 从飞书多维表格获取账号数据，从 `C:\账号梳理\syetemid.txt` 查找 systemid。
+> **前置条件：** 使用 `lark-cli` 从飞书多维表格获取账号数据，从 `/home/admin/config/syetemid.txt` 查找 systemid。
 
 ## 数据源
 
