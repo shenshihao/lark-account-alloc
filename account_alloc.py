@@ -96,21 +96,6 @@ def get_table_records(table_name_or_id):
     except:
         pass
     return [], [], []
-    import subprocess
-    cmd = "lark-cli base +record-list --base-token {} --table-id \"{}\" --limit 500".format(BASE_TOKEN, table_name_or_id)
-    result = subprocess.run(cmd, capture_output=True, shell=True)
-    if result.returncode != 0:
-        return [], [], []
-    try:
-        data = json.loads(result.stdout.decode('utf-8', errors='replace'))
-        if data.get("ok"):
-            records = data.get("data", {}).get("data", [])
-            fields = data.get("data", {}).get("fields", [])
-            record_ids = data.get("data", {}).get("record_id_list", [])
-            return records, fields, record_ids
-    except:
-        pass
-    return [], [], []
 
 def is_allocated(record, field_names):
     """检查记录是否已分配"""
@@ -159,24 +144,24 @@ def search_by_cust_id(query, table_name_or_id, need_systemid=True):
     """在指定表中搜索客户号"""
     return search_records(table_name_or_id, query, "客户号", need_systemid)
 
-def search_lowlat_by_fund_id(query):
+def search_lowlat_by_fund_id(query, need_systemid=True):
     """搜索低延时表通过资金账号"""
-    record, record_id = search_records("低延时账号表", query, "资金账号", True)
+    record, record_id = search_records("低延时账号表", query, "资金账号", need_systemid)
     return record, record_id
 
-def search_lowlat_by_cust_id(query):
+def search_lowlat_by_cust_id(query, need_systemid=True):
     """搜索低延时表通过客户号"""
-    return search_by_cust_id(query, "低延时账号表", True)
+    return search_by_cust_id(query, "低延时账号表", need_systemid)
 
-def search_dingdian(query):
+def search_dingdian(query, need_systemid=False):
     """搜索顶点表通过客户号，返回(记录字典, record_id, 类型)"""
     # 先搜两融
-    record, record_id = search_by_cust_id(query, "顶点两融账号表", False)
+    record, record_id = search_by_cust_id(query, "顶点两融账号表", need_systemid)
     if record:
         record["类型"] = "两融"
         return record, record_id, "顶点两融账号表"
     # 再搜现货
-    record, record_id = search_by_cust_id(query, "顶点现货账号表", False)
+    record, record_id = search_by_cust_id(query, "顶点现货账号表", need_systemid)
     if record:
         record["类型"] = "现货"
         return record, record_id, "顶点现货账号表"
@@ -196,23 +181,23 @@ def get_first_unallocated(table_name_or_id, need_systemid=True):
             return record_dict, record_id
     return None, None
 
-def get_first_unallocated_dingdian():
+def get_first_unallocated_dingdian(need_systemid=False):
     """获取第一条未分配的顶点账号"""
     # 先尝试两融
-    record, record_id = get_first_unallocated("顶点两融账号表", False)
+    record, record_id = get_first_unallocated("顶点两融账号表", need_systemid)
     if record:
         record["类型"] = "两融"
         return record, record_id, "顶点两融账号表"
     # 再尝试现货
-    record, record_id = get_first_unallocated("顶点现货账号表", False)
+    record, record_id = get_first_unallocated("顶点现货账号表", need_systemid)
     if record:
         record["类型"] = "现货"
         return record, record_id, "顶点现货账号表"
     return None, None, None
 
-def get_first_unallocated_lowlat():
+def get_first_unallocated_lowlat(need_systemid=True):
     """获取第一条未分配的低延时账号"""
-    return get_first_unallocated("低延时账号表", True)
+    return get_first_unallocated("低延时账号表", need_systemid)
 
 def mark_allocated(table_name_or_id, record_id):
     """标记记录为已分配，并失效缓存"""
@@ -226,17 +211,33 @@ def mark_allocated(table_name_or_id, record_id):
         invalidate_cache()  # 分配后失效缓存
     return result.returncode == 0
 
+def parse_access_type(access_type_str):
+    """解析接入类型字符串，返回是否需要查询systemid"""
+    if access_type_str in ["直连"]:
+        return False
+    elif access_type_str in ["统一接入", "三方接入"]:
+        return True
+    else:
+        # 默认统一接入
+        return True
+
 def main():
     if len(sys.argv) < 2:
         print("用法:")
-        print("  python account_alloc.py search <账号>")
-        print("  python account_alloc.py list")
-        print("  python account_alloc.py dingdian <客户号>")
-        print("  python account_alloc.py lowlat <客户号或资金账号>")
-        print("  python account_alloc.py alloc <类型> <客户号>  # 分配并标记")
-        print("  python account_alloc.py auto dingdian        # 自动分配顶点账号")
-        print("  python account_alloc.py auto lowlat          # 自动分配低延时账号")
-        print("  python account_alloc.py reload              # 重新加载systemid文件")
+        print("  python account_alloc.py auto <类型> [接入类型]  # 自动分配")
+        print("    类型: dingdian / lowlat")
+        print("    接入类型: 直连 / 统一接入 / 三方接入")
+        print("    示例: python account_alloc.py auto dingdian 直连")
+        print("    示例: python account_alloc.py auto lowlat 统一接入")
+        print("")
+        print("  python account_alloc.py search <类型> <客户号> [接入类型]")
+        print("    示例: python account_alloc.py search dingdian 2105416 直连")
+        print("")
+        print("  python account_alloc.py alloc <类型> <客户号> [接入类型]")
+        print("    分配并标记为已分配")
+        print("")
+        print("  python account_alloc.py reload  # 重新加载systemid文件")
+        print("  python account_alloc.py list    # 列出各表未分配记录数")
         sys.exit(1)
 
     mode = sys.argv[1]
@@ -246,24 +247,36 @@ def main():
         print("systemid文件已重新加载")
         return
 
+    if mode == "list":
+        tables = ["顶点两融账号表", "顶点现货账号表", "低延时账号表"]
+        for table in tables:
+            records, fields, _ = get_table_records(table)
+            unallocated = sum(1 for r in records if not is_allocated(r, fields))
+            print("{}: {} 条记录 (未分配: {})".format(table, len(records), unallocated))
+        return
+
     if mode == "auto":
         if len(sys.argv) < 3:
-            print("用法: python account_alloc.py auto <类型>")
+            print("用法: python account_alloc.py auto <类型> [接入类型]")
             print("类型: dingdian / lowlat")
+            print("接入类型: 直连 / 统一接入 / 三方接入（默认统一接入）")
             sys.exit(1)
         acc_type = sys.argv[2]
+        access_type = sys.argv[3] if len(sys.argv) > 3 else "统一接入"
+        need_systemid = parse_access_type(access_type)
+
         if acc_type == "dingdian":
-            record, record_id, table_name = get_first_unallocated_dingdian()
+            record, record_id, table_name = get_first_unallocated_dingdian(need_systemid)
             if record:
-                print("找到顶点账号 - {}:".format(record.get('类型')))
+                print("找到顶点账号 - {} ({}):".format(record.get('类型'), access_type))
                 print(json.dumps(record, ensure_ascii=False, indent=2))
                 print("record_id: {}".format(record_id))
             else:
                 print("没有未分配的顶点账号")
         elif acc_type == "lowlat":
-            record, record_id = get_first_unallocated_lowlat()
+            record, record_id = get_first_unallocated_lowlat(need_systemid)
             if record:
-                print("找到低延时账号:")
+                print("找到低延时账号 ({}):".format(access_type))
                 print(json.dumps(record, ensure_ascii=False, indent=2))
                 print("record_id: {}".format(record_id))
             else:
@@ -273,98 +286,90 @@ def main():
         return
 
     if mode == "search":
-        if len(sys.argv) < 3:
-            print("需要提供查询条件")
+        if len(sys.argv) < 4:
+            print("用法: python account_alloc.py search <类型> <客户号> [接入类型]")
             sys.exit(1)
-        query = sys.argv[2]
+        acc_type = sys.argv[2]
+        query = sys.argv[3]
+        access_type = sys.argv[4] if len(sys.argv) > 4 else "统一接入"
+        need_systemid = parse_access_type(access_type)
 
-        # 尝试在顶点表中搜索
-        record, record_id, table_name = search_dingdian(query)
+        if acc_type == "dingdian":
+            record, record_id, table_name = search_dingdian(query, need_systemid)
+            if record:
+                print("找到顶点账号 - {} ({}):".format(record.get('类型'), access_type))
+                print(json.dumps(record, ensure_ascii=False, indent=2))
+                print("record_id: {}".format(record_id))
+            else:
+                print("未找到未分配的顶点账号: {}".format(query))
+        elif acc_type == "lowlat":
+            record, record_id = search_lowlat_by_cust_id(query, need_systemid)
+            if not record:
+                record, record_id = search_lowlat_by_fund_id(query, need_systemid)
+            if record:
+                print("找到低延时账号 ({}):".format(access_type))
+                print(json.dumps(record, ensure_ascii=False, indent=2))
+                print("record_id: {}".format(record_id))
+            else:
+                print("未找到未分配的低延时账号: {}".format(query))
+        else:
+            print("未知类型: {}".format(acc_type))
+        return
+
+    if mode == "alloc":
+        if len(sys.argv) < 4:
+            print("用法: python account_alloc.py alloc <类型> <客户号> [接入类型]")
+            sys.exit(1)
+        acc_type = sys.argv[2]
+        query = sys.argv[3]
+        access_type = sys.argv[4] if len(sys.argv) > 4 else "统一接入"
+        need_systemid = parse_access_type(access_type)
+
+        if acc_type == "dingdian":
+            record, record_id, table_name = search_dingdian(query, need_systemid)
+            if record:
+                success = mark_allocated(table_name, record_id)
+                if success:
+                    print("已分配并标记: 顶点{} {} (客户号: {})".format(record.get('类型'), access_type, query))
+                else:
+                    print("分配成功但标记失败")
+            else:
+                print("未找到未分配的顶点账号: {}".format(query))
+        elif acc_type == "lowlat":
+            record, record_id = search_lowlat_by_cust_id(query, need_systemid)
+            if not record:
+                record, record_id = search_lowlat_by_fund_id(query, need_systemid)
+            if record:
+                success = mark_allocated("低延时账号表", record_id)
+                if success:
+                    print("已分配并标记: 低延时96 {} (客户号/资金账号: {})".format(access_type, query))
+                else:
+                    print("分配成功但标记失败")
+            else:
+                print("未找到未分配的低延时账号: {}".format(query))
+        else:
+            print("未知类型: {}".format(acc_type))
+        return
+
+    # 兼容旧命令格式
+    if mode == "search_old":
+        # 旧: python account_alloc.py search <账号>
+        query = sys.argv[2]
+        record, record_id, table_name = search_dingdian(query, False)
         if record:
             print("找到顶点账号 - {}:".format(record.get('类型')))
             print(json.dumps(record, ensure_ascii=False, indent=2))
             print("record_id: {}".format(record_id))
             return
-
-        # 尝试在低延时表中搜索
-        record, record_id = search_lowlat_by_cust_id(query)
+        record, record_id = search_lowlat_by_cust_id(query, True)
         if not record:
-            record, record_id = search_lowlat_by_fund_id(query)
+            record, record_id = search_lowlat_by_fund_id(query, True)
         if record:
             print("找到低延时账号:")
             print(json.dumps(record, ensure_ascii=False, indent=2))
             print("record_id: {}".format(record_id))
             return
-
         print("未找到未分配的账号: {}".format(query))
-
-    elif mode == "list":
-        # 列出各表未分配记录数
-        tables = ["顶点两融账号表", "顶点现货账号表", "低延时账号表"]
-        for table in tables:
-            records, fields, _ = get_table_records(table)
-            unallocated = sum(1 for r in records if not is_allocated(r, fields))
-            print("{}: {} 条记录 (未分配: {})".format(table, len(records), unallocated))
-
-    elif mode == "dingdian":
-        if len(sys.argv) < 3:
-            print("需要提供客户号")
-            sys.exit(1)
-        query = sys.argv[2]
-        record, record_id, table_name = search_dingdian(query)
-        if record:
-            print(json.dumps(record, ensure_ascii=False, indent=2))
-            print("record_id: {}".format(record_id))
-        else:
-            print("未找到未分配的账号: {}".format(query))
-
-    elif mode == "lowlat":
-        if len(sys.argv) < 3:
-            print("需要提供客户号或资金账号")
-            sys.exit(1)
-        query = sys.argv[2]
-        record, record_id = search_lowlat_by_cust_id(query)
-        if not record:
-            record, record_id = search_lowlat_by_fund_id(query)
-        if record:
-            print(json.dumps(record, ensure_ascii=False, indent=2))
-            print("record_id: {}".format(record_id))
-        else:
-            print("未找到未分配的账号: {}".format(query))
-
-    elif mode == "alloc":
-        # 分配账号并标记为已分配
-        if len(sys.argv) < 4:
-            print("用法: python account_alloc.py alloc <类型> <客户号>")
-            print("类型: dingdian / lowlat")
-            sys.exit(1)
-        acc_type = sys.argv[2]
-        query = sys.argv[3]
-
-        if acc_type == "dingdian":
-            record, record_id, table_name = search_dingdian(query)
-            if record:
-                success = mark_allocated(table_name, record_id)
-                if success:
-                    print("已分配并标记: 客户号 {}".format(query))
-                else:
-                    print("分配成功但标记失败")
-            else:
-                print("未找到未分配的账号: {}".format(query))
-        elif acc_type == "lowlat":
-            record, record_id = search_lowlat_by_cust_id(query)
-            if not record:
-                record, record_id = search_lowlat_by_fund_id(query)
-            if record:
-                success = mark_allocated("低延时账号表", record_id)
-                if success:
-                    print("已分配并标记: {}".format(query))
-                else:
-                    print("分配成功但标记失败")
-            else:
-                print("未找到未分配的账号: {}".format(query))
-        else:
-            print("未知类型: {}".format(acc_type))
 
 if __name__ == "__main__":
     main()
