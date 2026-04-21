@@ -9,6 +9,43 @@ import json
 
 BASE_TOKEN = "AdSxbgrTgaVZY7sGGJicufPxn2F"
 
+# 加载systemid映射表
+_systemid_map = None
+
+def load_systemid_map():
+    """加载syetemid.txt文件，构建fundid->systemid映射"""
+    global _systemid_map
+    if _systemid_map is not None:
+        return _systemid_map
+
+    _systemid_map = {}
+    try:
+        with open('C:/账号梳理/syetemid.txt', 'r', encoding='utf-8') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    systemid = parts[0]
+                    fundid = parts[1]
+                    _systemid_map[fundid] = systemid
+    except Exception as e:
+        print("Warning: failed to load systemid file: {}".format(e))
+    return _systemid_map
+
+def lookup_systemid(营业部, 资金账号):
+    """根据营业部+资金账号查找systemid"""
+    load_systemid_map()
+
+    # 资金账号格式: 03 + orgid(4位) + fundid(10位) = 16位
+    # systemid.txt格式: orgid(4位) + "_" + fundid(后8位)
+    fundid_without_03 = str(资金账号).lstrip('0')
+    # 取后8位作为short fundid
+    fundid_short = fundid_without_03[-8:] if len(fundid_without_03) >= 8 else fundid_without_03.zfill(8)
+    key = "{}_{}".format(营业部, fundid_short)
+
+    if key in _systemid_map:
+        return _systemid_map[key]
+    return "待补充"
+
 def get_table_records(table_name_or_id):
     """通过lark-cli查询表记录"""
     import subprocess
@@ -52,8 +89,19 @@ def search_records(table_name_or_id, query, search_field):
                         if j < len(record):
                             record_dict[fn] = record[j]
                     record_id = record_ids[idx] if idx < len(record_ids) else None
+                    enrich_with_systemid(record_dict)
                     return record_dict, record_id
     return None, None
+
+def enrich_with_systemid(record_dict):
+    """根据营业部+资金账号查找systemid并添加到记录"""
+    营业部 = record_dict.get("营业部", "")
+    资金账号 = record_dict.get("资金账号", "")
+    if 营业部 and 资金账号:
+        record_dict["systemid"] = lookup_systemid(str(营业部), str(资金账号))
+    else:
+        record_dict["systemid"] = "待补充"
+    return record_dict
 
 def search_by_cust_id(query, table_name_or_id):
     """在指定表中搜索客户号"""
@@ -92,6 +140,7 @@ def get_first_unallocated(table_name_or_id):
                 if j < len(record):
                     record_dict[fn] = record[j]
             record_id = record_ids[idx] if idx < len(record_ids) else None
+            enrich_with_systemid(record_dict)
             return record_dict, record_id
     return None, None
 

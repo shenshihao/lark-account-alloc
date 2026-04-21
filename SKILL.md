@@ -1,6 +1,6 @@
 ---
 name: lark-account-alloc
-version: 3.1.0
+version: 3.2.0
 description: "账号分配：从飞书多维表格获取账号数据，自动分配顶点/低延时账号并填充模板。当用户需要分配账号、查询账号配置时使用。"
 metadata:
   requires:
@@ -9,7 +9,7 @@ metadata:
 
 # 账号分配
 
-> **前置条件：** 使用 `lark-cli` 从飞书多维表格获取账号数据，无需本地文件。
+> **前置条件：** 使用 `lark-cli` 从飞书多维表格获取账号数据，从 `C:\账号梳理\syetemid.txt` 查找 systemid。
 
 ## 数据源
 
