@@ -121,7 +121,7 @@ def is_allocated(record, field_names):
                 return True
     return False
 
-def search_records(table_name_or_id, query, search_field):
+def search_records(table_name_or_id, query, search_field, need_systemid=True):
     """在指定表中搜索，返回(记录字典, record_id)"""
     records, field_names, record_ids = get_table_records(table_name_or_id)
 
@@ -137,12 +137,16 @@ def search_records(table_name_or_id, query, search_field):
                         if j < len(record):
                             record_dict[fn] = record[j]
                     record_id = record_ids[idx] if idx < len(record_ids) else None
-                    enrich_with_systemid(record_dict)
+                    enrich_with_systemid(record_dict, need_systemid)
                     return record_dict, record_id
     return None, None
 
-def enrich_with_systemid(record_dict):
+def enrich_with_systemid(record_dict, need_systemid=True):
     """根据营业部+资金账号查找systemid并添加到记录"""
+    if not need_systemid:
+        record_dict["systemid"] = None
+        return record_dict
+
     营业部 = record_dict.get("营业部", "")
     资金账号 = record_dict.get("资金账号", "")
     if 营业部 and 资金账号:
@@ -151,34 +155,34 @@ def enrich_with_systemid(record_dict):
         record_dict["systemid"] = "待补充"
     return record_dict
 
-def search_by_cust_id(query, table_name_or_id):
+def search_by_cust_id(query, table_name_or_id, need_systemid=True):
     """在指定表中搜索客户号"""
-    return search_records(table_name_or_id, query, "客户号")
+    return search_records(table_name_or_id, query, "客户号", need_systemid)
 
 def search_lowlat_by_fund_id(query):
     """搜索低延时表通过资金账号"""
-    record, record_id = search_records("低延时账号表", query, "资金账号")
+    record, record_id = search_records("低延时账号表", query, "资金账号", True)
     return record, record_id
 
 def search_lowlat_by_cust_id(query):
     """搜索低延时表通过客户号"""
-    return search_by_cust_id(query, "低延时账号表")
+    return search_by_cust_id(query, "低延时账号表", True)
 
 def search_dingdian(query):
     """搜索顶点表通过客户号，返回(记录字典, record_id, 类型)"""
     # 先搜两融
-    record, record_id = search_by_cust_id(query, "顶点两融账号表")
+    record, record_id = search_by_cust_id(query, "顶点两融账号表", False)
     if record:
         record["类型"] = "两融"
         return record, record_id, "顶点两融账号表"
     # 再搜现货
-    record, record_id = search_by_cust_id(query, "顶点现货账号表")
+    record, record_id = search_by_cust_id(query, "顶点现货账号表", False)
     if record:
         record["类型"] = "现货"
         return record, record_id, "顶点现货账号表"
     return None, None, None
 
-def get_first_unallocated(table_name_or_id):
+def get_first_unallocated(table_name_or_id, need_systemid=True):
     """获取表中第一条未分配的记录"""
     records, field_names, record_ids = get_table_records(table_name_or_id)
     for idx, record in enumerate(records):
@@ -188,19 +192,19 @@ def get_first_unallocated(table_name_or_id):
                 if j < len(record):
                     record_dict[fn] = record[j]
             record_id = record_ids[idx] if idx < len(record_ids) else None
-            enrich_with_systemid(record_dict)
+            enrich_with_systemid(record_dict, need_systemid)
             return record_dict, record_id
     return None, None
 
 def get_first_unallocated_dingdian():
     """获取第一条未分配的顶点账号"""
     # 先尝试两融
-    record, record_id = get_first_unallocated("顶点两融账号表")
+    record, record_id = get_first_unallocated("顶点两融账号表", False)
     if record:
         record["类型"] = "两融"
         return record, record_id, "顶点两融账号表"
     # 再尝试现货
-    record, record_id = get_first_unallocated("顶点现货账号表")
+    record, record_id = get_first_unallocated("顶点现货账号表", False)
     if record:
         record["类型"] = "现货"
         return record, record_id, "顶点现货账号表"
@@ -208,7 +212,7 @@ def get_first_unallocated_dingdian():
 
 def get_first_unallocated_lowlat():
     """获取第一条未分配的低延时账号"""
-    return get_first_unallocated("低延时账号表")
+    return get_first_unallocated("低延时账号表", True)
 
 def mark_allocated(table_name_or_id, record_id):
     """标记记录为已分配，并失效缓存"""
