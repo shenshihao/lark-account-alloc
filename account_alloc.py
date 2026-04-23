@@ -97,33 +97,63 @@ def get_table_records(table_name_or_id):
         pass
     return [], [], []
 
-def is_allocated(record, field_names):
+def build_field_index_map(field_names):
+    """建立字段名到索引的映射
+
+    Args:
+        field_names: 字段名列表 ["ID", "客户号", ...]
+
+    Returns:
+        dict: {字段名: 索引} e.g. {"客户号": 3, "是否已分配": 5}
+    """
+    return {name: idx for idx, name in enumerate(field_names)}
+
+
+def get_field_value(record, field_index_map, field_name, default=None):
+    """按字段名获取记录值
+
+    Args:
+        record: 记录值列表 [val1, val2, ...]
+        field_index_map: 字段名到索引的映射
+        field_name: 要获取的字段名
+        default: 默认值
+
+    Returns:
+        字段值，如果字段不存在返回 default
+    """
+    idx = field_index_map.get(field_name)
+    if idx is not None and idx < len(record):
+        return record[idx]
+    return default
+
+
+def is_allocated(record, field_index_map):
     """检查记录是否已分配"""
-    for i, fn in enumerate(field_names):
-        if fn == "是否已分配" and i < len(record):
-            val = record[i]
-            if val and ("已分配" in str(val) or "已分配" in str(val[0]) if isinstance(val, list) else False):
-                return True
+    val = get_field_value(record, field_index_map, "是否已分配")
+    if val:
+        val_str = str(val)
+        # 处理列表格式 ["已分配"] 或字符串 "已分配"
+        if "已分配" in val_str:
+            return True
     return False
 
 def search_records(table_name_or_id, query, search_field, need_systemid=True):
     """在指定表中搜索，返回(记录字典, record_id)"""
     records, field_names, record_ids = get_table_records(table_name_or_id)
+    field_index_map = build_field_index_map(field_names)
 
     for idx, record in enumerate(records):
-        for i, field_name in enumerate(field_names):
-            if field_name == search_field and i < len(record):
-                if query in str(record[i]):
-                    # 跳过已分配的记录
-                    if is_allocated(record, field_names):
-                        continue
-                    record_dict = {}
-                    for j, fn in enumerate(field_names):
-                        if j < len(record):
-                            record_dict[fn] = record[j]
-                    record_id = record_ids[idx] if idx < len(record_ids) else None
-                    enrich_with_systemid(record_dict, need_systemid)
-                    return record_dict, record_id
+        search_val = get_field_value(record, field_index_map, search_field)
+        if search_val and query in str(search_val):
+            # 跳过已分配的记录
+            if is_allocated(record, field_index_map):
+                continue
+            record_dict = {}
+            for fn in field_names:
+                record_dict[fn] = get_field_value(record, field_index_map, fn)
+            record_id = record_ids[idx] if idx < len(record_ids) else None
+            enrich_with_systemid(record_dict, need_systemid)
+            return record_dict, record_id
     return None, None
 
 def enrich_with_systemid(record_dict, need_systemid=True):
@@ -170,12 +200,12 @@ def search_dingdian(query, need_systemid=False):
 def get_first_unallocated(table_name_or_id, need_systemid=True):
     """获取表中第一条未分配的记录"""
     records, field_names, record_ids = get_table_records(table_name_or_id)
+    field_index_map = build_field_index_map(field_names)
     for idx, record in enumerate(records):
-        if not is_allocated(record, field_names):
+        if not is_allocated(record, field_index_map):
             record_dict = {}
-            for j, fn in enumerate(field_names):
-                if j < len(record):
-                    record_dict[fn] = record[j]
+            for fn in field_names:
+                record_dict[fn] = get_field_value(record, field_index_map, fn)
             record_id = record_ids[idx] if idx < len(record_ids) else None
             enrich_with_systemid(record_dict, need_systemid)
             return record_dict, record_id
@@ -250,8 +280,9 @@ def main():
     if mode == "list":
         tables = ["顶点两融账号表", "顶点现货账号表", "低延时账号表"]
         for table in tables:
-            records, fields, _ = get_table_records(table)
-            unallocated = sum(1 for r in records if not is_allocated(r, fields))
+            records, field_names, _ = get_table_records(table)
+            field_index_map = build_field_index_map(field_names)
+            unallocated = sum(1 for r in records if not is_allocated(r, field_index_map))
             print("{}: {} 条记录 (未分配: {})".format(table, len(records), unallocated))
         return
 
